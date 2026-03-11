@@ -1,0 +1,13 @@
+{
+  "require": {
+    "php": "^8.3",
+    "symfony/dotenv": "^7.1",
+    "psr/log": "^3.0",
+    "monolog/monolog": "^3.7"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}
