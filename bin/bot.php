@@ -31,14 +31,29 @@ $targetChatId = (int)$_ENV['TARGET_CHAT_ID'];
 
 $logger->info('Бот запущен и слушает чат', ['chat_id' => $targetChatId]);
 
+$consecutiveErrors = 0;
+
 while (true) {
     $updates = $client->getUpdates($offset);
 
-    if (!$updates['ok'] ?? false) {
-        $logger->error('Ошибка получения обновлений', ['response' => $updates]);
-        sleep(5);
+    if (!isset($updates['ok']) || !$updates['ok']) {
+        $consecutiveErrors++;
+        $logger->error('Ошибка получения обновлений', [
+            'response' => $updates,
+            'consecutive' => $consecutiveErrors
+        ]);
+
+        if ($consecutiveErrors > 5) {
+            $logger->critical('Слишком много ошибок API, пауза 60 сек');
+            sleep(60);
+            $consecutiveErrors = 0;
+        } else {
+            sleep(10);
+        }
         continue;
     }
+
+    $consecutiveErrors = 0;
 
     foreach ($updates['result'] as $update) {
         $message = $update['message'] ?? null;
@@ -50,11 +65,16 @@ while (true) {
                 (int)$message['date']
             );
 
+            $logger->info('Обнаружен и обрабатывается пост', [
+                'chat_id' => $post->chatId,
+                'message_id' => $post->messageId
+            ]);
+
             $processor->process($post);
         }
 
         $offset = max($offset, (int)$update['update_id'] + 1);
     }
 
-    sleep(1); // пауза между polling-запросами
+    sleep(1);
 }
