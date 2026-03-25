@@ -2,8 +2,6 @@
 
 namespace App\Infrastructure\Telegram;
 
-use Symfony\Component\Dotenv\Dotenv;
-
 final class CurlTelegramClient implements TelegramClientInterface
 {
     /**
@@ -13,8 +11,11 @@ final class CurlTelegramClient implements TelegramClientInterface
 
     public function __construct()
     {
-        (new Dotenv())->load(__DIR__ . '/../../../.env');
-        $this->token = $_ENV['BOT_TOKEN'];
+        $this->token = getenv('BOT_TOKEN') ?: $_ENV['BOT_TOKEN'] ?? '';
+
+        if (empty($this->token)) {
+            throw new \RuntimeException('BOT_TOKEN is not set in environment');
+        }
     }
 
     /**
@@ -46,6 +47,11 @@ final class CurlTelegramClient implements TelegramClientInterface
         return json_decode($response, true) ?? ['ok' => false, 'result' => []];
     }
 
+    /**
+     * @param int $chatId
+     * @param string $text
+     * @return void
+     */
     public function sendMessage(int $chatId, string $text): void
     {
         $url = "https://api.telegram.org/bot{$this->token}/sendMessage";

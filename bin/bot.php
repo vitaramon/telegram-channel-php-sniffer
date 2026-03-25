@@ -9,10 +9,17 @@ use App\Domain\Specification\ContainsPhraseSpecification;
 use App\Domain\Action\NotifyUserAction;
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
+use Symfony\Component\Dotenv\Dotenv;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-(new \Symfony\Component\Dotenv\Dotenv())->load(__DIR__ . '/../.env');
+// === Docker-friendly загрузка .env (только если файл существует) ===
+$envPath = __DIR__ . '/../.env';
+if (file_exists($envPath)) {
+    (new Dotenv())->load($envPath);
+    // Для локального запуска без docker-compose
+}
+// В Docker env_file уже инжектит переменные — ничего не делаем
 
 $logger = new Logger('bot');
 $logger->pushHandler(new StreamHandler($_ENV['LOG_PATH'] ?? 'php://stdout', Logger::INFO));
@@ -20,7 +27,7 @@ $logger->pushHandler(new StreamHandler($_ENV['LOG_PATH'] ?? 'php://stdout', Logg
 $client = new CurlTelegramClient();
 
 $rule = (new RuleBuilder())
-    ->withCondition(new ContainsPhraseSpecification('мафия'))
+    ->withCondition(new ContainsPhraseSpecification('Мафию'))
     ->addAction(new NotifyUserAction($client, (int)$_ENV['NOTIFY_USER_ID'], $logger))
     ->build();
 
