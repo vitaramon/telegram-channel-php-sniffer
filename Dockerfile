@@ -22,14 +22,16 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction
 COPY src/ src/
 COPY bin/ bin/
 
-# Создаём папку для логов и non-root пользователя
-RUN mkdir -p /var/log/bot \
-    && chown -R 1001:1001 /app /var/log/bot \
-    && chmod 755 bin/bot.php
+# === ИСПРАВЛЕНИЕ: создаём настоящего non-root пользователя ===
+RUN addgroup -g 1001 app && \
+    adduser -u 1001 -G app -s /bin/sh -D app && \
+    mkdir -p /var/log/bot && \
+    chown -R app:app /app /var/log/bot && \
+    chmod 755 bin/bot.php
 
-USER 1001
+USER app
 
-# Supervisor конфиг (встроен в образ)
+# Supervisor конфиг (теперь используем имя пользователя 'app')
 COPY <<EOF /etc/supervisor/conf.d/bot.conf
 [supervisord]
 nodaemon=true
@@ -44,7 +46,7 @@ stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
-user=1001
+user=app
 EOF
 
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/bot.conf"]
