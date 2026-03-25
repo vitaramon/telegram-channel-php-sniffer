@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace App\Event\RuleBuilder;
+namespace App\Application;
 
 use App\Application\Rule;
 use App\Domain\Action\ActionInterface;
