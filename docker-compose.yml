@@ -1,0 +1,24 @@
+# docker-compose.yml
+version: '3.9'
+
+services:
+  bot:
+    build: .
+    container_name: mafia-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/log/bot
+      - ./src:/app/src:ro
+      - ./bin:/app/bin:ro
+    healthcheck:
+      test: ["CMD", "ps", "-p", "1", "-o", "comm="]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

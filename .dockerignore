@@ -1,0 +1,8 @@
+# .dockerignore
+.git
+.gitignore
+logs/*
+!logs/.gitkeep
+vendor/
+*.log
+.DS_Store
