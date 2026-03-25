@@ -13,21 +13,21 @@ use Symfony\Component\Dotenv\Dotenv;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-// === Docker-friendly загрузка .env (только если файл существует) ===
+// === Docker-friendly загрузка .env ===
 $envPath = __DIR__ . '/../.env';
 if (file_exists($envPath)) {
     (new Dotenv())->load($envPath);
-    // Для локального запуска без docker-compose
 }
-// В Docker env_file уже инжектит переменные — ничего не делаем
 
 $logger = new Logger('bot');
 $logger->pushHandler(new StreamHandler($_ENV['LOG_PATH'] ?? 'php://stdout', Logger::INFO));
 
 $client = new CurlTelegramClient();
 
+$searchPhrase = $_ENV['SEARCH_PHRASE'] ?? 'findme';
+
 $rule = (new RuleBuilder())
-    ->withCondition(new ContainsPhraseSpecification('Мафию'))
+    ->withCondition(new ContainsPhraseSpecification($searchPhrase))
     ->addAction(new NotifyUserAction($client, (int)$_ENV['NOTIFY_USER_ID'], $logger))
     ->build();
 
@@ -36,12 +36,25 @@ $processor = new PostProcessor([$rule]);
 $offset = 0;
 $targetChatId = (int)$_ENV['TARGET_CHAT_ID'];
 
-$logger->info('Бот запущен и слушает чат', ['chat_id' => $targetChatId]);
+$logger->info('Бот успешно запущен и начинает polling', [
+    'chat_id' => $targetChatId,
+    'search_phrase' => $searchPhrase
+]);
 
 $consecutiveErrors = 0;
+$lastHeartbeat = time();
 
 while (true) {
     $updates = $client->getUpdates($offset);
+
+    // Heartbeat: каждые 30 секунд показываем, что бот жив
+    if (time() - $lastHeartbeat >= 30) {
+        $logger->info('Bot heartbeat — polling continues', [
+            'uptime' => gmdate('H:i:s', time() - ($lastHeartbeat - 30)),
+            'last_offset' => $offset
+        ]);
+        $lastHeartbeat = time();
+    }
 
     if (!isset($updates['ok']) || !$updates['ok']) {
         $consecutiveErrors++;
@@ -62,7 +75,12 @@ while (true) {
 
     $consecutiveErrors = 0;
 
-    foreach ($updates['result'] as $update) {
+    $updateCount = count($updates['result'] ?? []);
+    if ($updateCount > 0) {
+        $logger->info("Получено {$updateCount} обновлений от Telegram", ['offset' => $offset]);
+    }
+
+    foreach ($updates['result'] ?? [] as $update) {
         $message = $update['message'] ?? null;
         if ($message && isset($message['text']) && (int)$message['chat']['id'] === $targetChatId) {
             $post = new \App\Domain\Model\Post(
@@ -74,7 +92,8 @@ while (true) {
 
             $logger->info('Обнаружен и обрабатывается пост', [
                 'chat_id' => $post->chatId,
-                'message_id' => $post->messageId
+                'message_id' => $post->messageId,
+                'text_preview' => mb_substr($post->text, 0, 80) . '...'
             ]);
 
             $processor->process($post);

@@ -25,7 +25,7 @@ final class NotifyUserAction implements ActionInterface
      */
     public function execute(Post $post): void
     {
-        $message = "🚨 Обнаружена фраза «мафия»!\n\n" .
+        $message = "🚨 Обнаружена искомая фраза!\n\n" .
             "Пост: https://t.me/c/" . substr((string)$post->chatId, 4) . "/" . $post->messageId . "\n" .
             "Время: " . date('Y-m-d H:i:s', $post->date);
 
