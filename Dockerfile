@@ -1,28 +1,26 @@
 # Dockerfile
 FROM php:8.3-cli-alpine
 
-# Устанавливаем зависимости
 RUN apk add --no-cache \
     git \
     unzip \
     curl \
     supervisor \
+    ca-certificates \
+    openssl \
+    && update-ca-certificates \
     && docker-php-ext-install pcntl opcache
 
-# Composer
 COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
 
-# Копируем composer файлы и устанавливаем зависимости
 COPY composer.json .env.example ./
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Копируем весь код
 COPY src/ src/
 COPY bin/ bin/
 
-# === ИСПРАВЛЕНИЕ: создаём настоящего non-root пользователя ===
 RUN addgroup -g 1001 app && \
     adduser -u 1001 -G app -s /bin/sh -D app && \
     mkdir -p /var/log/bot && \
@@ -31,7 +29,6 @@ RUN addgroup -g 1001 app && \
 
 USER app
 
-# Supervisor конфиг (теперь используем имя пользователя 'app')
 COPY <<EOF /etc/supervisor/conf.d/bot.conf
 [supervisord]
 nodaemon=true

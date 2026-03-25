@@ -25,26 +25,36 @@ final class CurlTelegramClient implements TelegramClientInterface
      */
     public function getUpdates(int $offset = 0, int $limit = 100): array
     {
-        $url = "https://api.telegram.org/bot{$this->token}/getUpdates?offset={$offset}&limit={$limit}&timeout=30";
+        $maxRetries = 3;
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            $url = "https://api.telegram.org/bot{$this->token}/getUpdates?offset={$offset}&limit={$limit}&timeout=30";
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 35);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 40);           // увеличено
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 12);
+            // === FIX TLS unexpected EOF ===
+            curl_setopt($ch, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+            curl_setopt($ch, CURLOPT_SSL_CIPHER_LIST, 'HIGH:!aNULL:!MD5:!RC4');
 
-        $response = curl_exec($ch);
-        $errno = curl_errno($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
+            $response = curl_exec($ch);
+            $errno = curl_errno($ch);
+            $error = curl_error($ch);
+            curl_close($ch);
 
-        if ($errno !== 0) {
-            error_log("Telegram getUpdates failed: [$errno] $error");
-            return ['ok' => false, 'description' => $error, 'result' => []];
+            if ($errno === 0) {
+                return json_decode($response, true) ?? ['ok' => false, 'result' => []];
+            }
+
+            error_log("Telegram getUpdates attempt {$attempt}/{$maxRetries} failed: [{$errno}] {$error}");
+            if ($attempt < $maxRetries) {
+                sleep(2 ** $attempt); // exponential backoff
+            }
         }
 
-        return json_decode($response, true) ?? ['ok' => false, 'result' => []];
+        return ['ok' => false, 'description' => 'All retry attempts failed', 'result' => []];
     }
 
     /**
@@ -55,11 +65,7 @@ final class CurlTelegramClient implements TelegramClientInterface
     public function sendMessage(int $chatId, string $text): void
     {
         $url = "https://api.telegram.org/bot{$this->token}/sendMessage";
-        $data = [
-            'chat_id' => $chatId,
-            'text' => $text,
-            'parse_mode' => 'HTML'
-        ];
+        $data = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_POST, true);
@@ -69,6 +75,8 @@ final class CurlTelegramClient implements TelegramClientInterface
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_setopt($ch, CURLOPT_SSL_CIPHER_LIST, 'HIGH:!aNULL:!MD5:!RC4');
 
         $response = curl_exec($ch);
         $errno = curl_errno($ch);
@@ -76,7 +84,7 @@ final class CurlTelegramClient implements TelegramClientInterface
         curl_close($ch);
 
         if ($errno !== 0) {
-            error_log("Telegram sendMessage failed: [$errno] $error | chatId: $chatId");
+            error_log("Telegram sendMessage failed: [{$errno}] {$error} | chatId: {$chatId}");
         }
     }
 }
