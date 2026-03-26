@@ -12,6 +12,7 @@ services:
       - ./logs:/var/log/bot
       - ./src:/app/src:ro
       - ./bin:/app/bin:ro
+      - ./sessions:/app/sessions
     healthcheck:
       test: ["CMD", "ps", "-p", "1", "-o", "comm="]
       interval: 30s

@@ -3,6 +3,7 @@
 namespace App\Presentation;
 
 use App\Infrastructure\Telegram\CurlTelegramClient;
+use App\Infrastructure\Telegram\MadelineProtoClient;
 use App\Application\PostProcessor;
 use App\Application\RuleBuilder;
 use App\Domain\Specification\ContainsPhraseSpecification;
@@ -13,22 +14,21 @@ use Symfony\Component\Dotenv\Dotenv;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-// === Docker-friendly загрузка .env ===
-$envPath = __DIR__ . '/../.env';
-if (file_exists($envPath)) {
-    (new Dotenv())->load($envPath);
+if (file_exists(__DIR__ . '/../.env')) {
+    (new Dotenv())->load(__DIR__ . '/../.env');
 }
 
 $logger = new Logger('bot');
 $logger->pushHandler(new StreamHandler($_ENV['LOG_PATH'] ?? 'php://stdout', Logger::INFO));
 
-$client = new CurlTelegramClient();
+$notificationClient = new CurlTelegramClient();
+$parserClient = new MadelineProtoClient();
 
 $searchPhrase = $_ENV['SEARCH_PHRASE'] ?? 'findme';
 
 $rule = (new RuleBuilder())
     ->withCondition(new ContainsPhraseSpecification($searchPhrase))
-    ->addAction(new NotifyUserAction($client, (int)$_ENV['NOTIFY_USER_ID'], $logger))
+    ->addAction(new NotifyUserAction($notificationClient, (int)$_ENV['NOTIFY_USER_ID'], $logger))
     ->build();
 
 $processor = new PostProcessor([$rule]);
@@ -36,7 +36,7 @@ $processor = new PostProcessor([$rule]);
 $offset = 0;
 $targetChatId = (int)$_ENV['TARGET_CHAT_ID'];
 
-$logger->info('Бот успешно запущен и начинает polling', [
+$logger->info('Userbot успешно запущен (MadelineProto)', [
     'chat_id' => $targetChatId,
     'search_phrase' => $searchPhrase
 ]);
@@ -45,62 +45,37 @@ $consecutiveErrors = 0;
 $lastHeartbeat = time();
 
 while (true) {
-    $updates = $client->getUpdates($offset);
+    try {
+        $updatesRaw = $parserClient->getUpdates($offset);
 
-    // Heartbeat: каждые 30 секунд показываем, что бот жив
-    if (time() - $lastHeartbeat >= 30) {
-        $logger->info('Bot heartbeat — polling continues', [
-            'uptime' => gmdate('H:i:s', time() - ($lastHeartbeat - 30)),
-            'last_offset' => $offset
-        ]);
-        $lastHeartbeat = time();
-    }
+        if (time() - $lastHeartbeat >= 30) {
+            $logger->info('Userbot heartbeat — polling continues');
+            $lastHeartbeat = time();
+        }
 
-    if (!isset($updates['ok']) || !$updates['ok']) {
+        foreach ($updatesRaw as $update) {
+            $post = $parserClient->convertToPost($update);
+            if ($post) {
+                $logger->info('Обнаружен пост для обработки', [
+                    'message_id' => $post->messageId,
+                    'text_preview' => mb_substr($post->text, 0, 80) . '...'
+                ]);
+                $processor->process($post);
+            }
+            $offset = max($offset, $update['update_id'] ?? 0) + 1;
+        }
+
+        $consecutiveErrors = 0;
+        sleep(1);
+
+    } catch (\Throwable $e) {
         $consecutiveErrors++;
-        $logger->error('Ошибка получения обновлений', [
-            'response' => $updates,
-            'consecutive' => $consecutiveErrors
-        ]);
-
+        $logger->error('Userbot ошибка', ['error' => $e->getMessage()]);
         if ($consecutiveErrors > 5) {
-            $logger->critical('Слишком много ошибок API, пауза 60 сек');
             sleep(60);
             $consecutiveErrors = 0;
         } else {
             sleep(10);
         }
-        continue;
     }
-
-    $consecutiveErrors = 0;
-
-    $updateCount = count($updates['result'] ?? []);
-    if ($updateCount > 0) {
-        $logger->info("Получено {$updateCount} обновлений от Telegram", ['offset' => $offset]);
-    }
-
-    foreach ($updates['result'] ?? [] as $update) {
-        $message = $update['message'] ?? null;
-        if ($message && isset($message['text']) && (int)$message['chat']['id'] === $targetChatId) {
-            $post = new \App\Domain\Model\Post(
-                $message['text'],
-                (int)$message['chat']['id'],
-                (int)$message['message_id'],
-                (int)$message['date']
-            );
-
-            $logger->info('Обнаружен и обрабатывается пост', [
-                'chat_id' => $post->chatId,
-                'message_id' => $post->messageId,
-                'text_preview' => mb_substr($post->text, 0, 80) . '...'
-            ]);
-
-            $processor->process($post);
-        }
-
-        $offset = max($offset, (int)$update['update_id'] + 1);
-    }
-
-    sleep(1);
 }
